@@ -6,8 +6,6 @@ int portrait_gen(struct halide_buffer_t *, struct halide_buffer_t *);
 
 #include <iostream>
 
-//#include "Halide.h"
-
 #include "HalideBuffer.h"
 #include "HalideRuntime.h"
 #include "halide_image_io.h"
