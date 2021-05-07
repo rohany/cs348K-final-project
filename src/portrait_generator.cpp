@@ -81,11 +81,38 @@ public:
       auto cdepth = Halide::select(depth(x, y) == infty, maxDepth(), depth(x, y));
       // This setup makes close pixels darker.
       normalizedDepth(x, y) = 255.f - (cdepth * 255.f / maxDepth());
-      // This setup makes close pixels ligher.
+      // This setup makes close pixels lighter.
       // normalizedDepth(x, y) = (cdepth * 255.f / maxDepth());
 
       depth_map(x, y, c) = cast<uint8_t>(normalizedDepth(x, y));
 
+      // TODO (rohany): This bilateral filter of the depth map doesn't really help. It thinks all
+      //  of the depth changes are edges and doesn't blur across them. We really need
+      //  instead segmentation that tells me where to blur across.
+      // Apply a bilateral blur to the image.
+      // float sigma = 1.5f;
+      // Func guassian("guassian");
+      // guassian(x, y) = exp(-((x * x + y * y) / (2.f * sigma * sigma))) / Expr(2.f * M_PI * sigma * sigma);
+      // // TODO (rohany): Make these constants.
+      // auto blurWindowSize = 2;
+      // RDom blurDim(-blurWindowSize, 2 * blurWindowSize + 1, -blurWindowSize, 2 * blurWindowSize + 1);
+      // Func depthBlurred("depthBlurred");
+      // Func blurNorm("blurNorm");
+      // auto weighting = [](Expr x) {
+      //   // Equivalent to a gaussian blur.
+      //   return 1.f;
+      //   // Weights pixels that are far off in value as low.
+      //   // return Halide::select(x > 30, 0.f, 1.f);
+      //   // Does the same thing with a rounder effect.
+      //   // float sigma = 10.f;
+      //   // return exp(-x*x/(2.f*sigma*sigma)) / (sqrtf(2.f*M_PI)*sigma);
+      // };
+      // auto diff = Halide::abs(normalizedDepth(x, y) - normalizedDepth(x + blurDim.x, y + blurDim.y));
+      // blurNorm(x, y) += weighting(diff) * guassian(blurDim.x, blurDim.y);
+      // depthBlurred(x, y) += weighting(diff) *
+      //                       guassian(blurDim.x, blurDim.y) * normalizedDepth(x + blurDim.x, y + blurDim.y) /
+      //                       blurNorm(x, y);
+      // depth_map(x, y, c) = cast<uint8_t>(depthBlurred(x, y));
 
       // SCHEDULE.
 
@@ -95,6 +122,8 @@ public:
       depth.compute_root();
       maxDepth.compute_root();
       normalizedDepth.compute_root();
+//      blurNorm.compute_root();
+//      depthBlurred.compute_root();
       depth_map.compute_root();
 
       depth_map.print_loop_nest();
