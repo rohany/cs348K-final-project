@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(final-project)
+project(cs348k-final-project)
 
 # Set up language features.
 set(CMAKE_CXX_STANDARD 11)
@@ -15,7 +15,7 @@ target_link_libraries(portrait.generator PRIVATE Halide::Generator)
 add_halide_library(portrait_gen FROM portrait.generator)
 
 # Main executable.
-add_executable(portrait src/portrait_main.cpp)
+add_executable(portrait src/portrait_main.cpp src/args.hxx)
 # TODO (rohany): Can potentially add compilation options here.
 # target_compile_options(portrait)
 target_link_libraries(portrait
