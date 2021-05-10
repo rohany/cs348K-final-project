@@ -138,10 +138,7 @@ public:
       Func depth("depth");
       // When the disparity is 0, map the depth to infinity.
       Expr disparity = Halide::abs(x - minTile(x, y)[0]);
-      depth(x, y) = Halide::select(disparity == 0,
-                                   infty,
-                                   // TODO (rohany): 1.f should be focalLength * stereoDistance.
-                                   1.f / cast<float_t>(disparity));
+      depth(x, y) = Halide::select(disparity == 0, infty, 1.f / cast<float_t>(disparity));
 
       // Scale values in depth to between 0 and 255.
       RDom imageDom(0, inputLeft.width(), 0, inputLeft.height());
@@ -157,11 +154,10 @@ public:
       auto cdepth = Halide::select(depth(x, y) == infty, maxDepth(), depth(x, y));
       // This setup makes close pixels darker.
       normalizedDepth(x, y) = 255.f - (cdepth * 255.f / maxDepth());
-      // This setup makes close pixels lighter.
-      // normalizedDepth(x, y) = (cdepth * 255.f / maxDepth());
 
       // Use the segmented image to smooth the depth map. We'll do this with a median blur.
       // A gaussian blur doesn't smooth the image as much when tested.
+      // TODO (rohany): Try doing this after the bilateral filter.
       Func rawBlur("rawBlur");
       std::vector<Expr> exprs;
       for (int i = -2; i <= 2; i++) {
@@ -171,18 +167,87 @@ public:
       }
       rawBlur(x, y) = median(exprs);
 
-      Func inMaskVals("inMaskVals"), inMaskCount("inMaskCount");
-      inMaskVals() += Halide::select(cSegmented(imageDom.x, imageDom.y) == 0.f, normalizedDepth(imageDom.x, imageDom.y), 0.f);
-      inMaskCount() += Halide::select(cSegmented(imageDom.x, imageDom.y) == 0.f, 1.f, 0.f);
-
+      // TODO (rohany): Adjust this code to have a compile time parameter about whather to
+      //  use the bilateral grid or not.
       // Next, we'll only the blur only at positions that are in the background, as given by the segmenter.
-      Func depthBlurred("depthBlurred");
-      // This line makes us use the average depth for the unmasked part. This is done in the paper,
-      // but it's probably fine to directly take pixels from the unmasked portion for our use case.
-      // depthBlurred(x, y) = Halide::select(cSegmented(x, y) == 255.f, cast<float_t>(rawBlur(x, y)), inMaskVals() / inMaskCount());
-      depthBlurred(x, y) = Halide::select(cSegmented(x, y) == 255.f, cast<float_t>(rawBlur(x, y)), normalizedDepth(x, y));
+      // Func depthBlurred("depthBlurred");
+      // depthBlurred(x, y) = Halide::select(cSegmented(x, y) == 255.f, cast<float_t>(rawBlur(x, y)), normalizedDepth(x, y));
+      // depth_map(x, y, c) = cast<uint8_t>(depthBlurred(x, y));
 
-      depth_map(x, y, c) = cast<uint8_t>(depthBlurred(x, y));
+      // Blur the depth map using a bilateral grid. The paper uses a "bilateral solver", which
+      // I think is a different concept, but helps remove noise in the output of depth map estimator.
+      // This implementation of the bilateral grid is adapted from the implementation at
+      // https://github.com/halide/Halide/blob/master/apps/bilateral_grid/bilateral_grid_generator.cpp.
+      Func ndmax, ndnorm;
+      Func bilateral_grid("bilateral_grid");
+      {
+        Var x2("x2"), y2("y2"), z("z"), c2("c2");
+        int s_sigma = 8;
+        float r_sigma = 0.5f;
+
+        // Scale normalizedDepth down into the 0.0 -> 1.0 range. The bilateral
+        // filtering algorithm only works on images with pixels in the [0, 1)
+        // range, and outputs pixels in the same range.
+        ndmax() = 0.f;
+        ndmax() = Halide::max(ndmax(), rawBlur(imageDom.x, imageDom.y));
+        ndnorm(x, y) = rawBlur(x, y) / ndmax();
+
+        // Construct the bilateral grid.
+        RDom r(0, s_sigma, 0, s_sigma);
+        Expr val = ndnorm(x2 * s_sigma + r.x - s_sigma / 2, y2 * s_sigma + r.y - s_sigma / 2);
+        val = clamp(val, 0.0f, 1.0f);
+        Expr zi = cast<int>(val * (1.0f / r_sigma) + 0.5f);
+        Func histogram("histogram");
+        histogram(x2, y2, z, c2) = 0.0f;
+        histogram(x2, y2, zi, c2) += mux(c2, {val, 1.0f});
+
+        // Blur the grid using a five-tap filter.
+        Func blurx("blurx"), blury("blury"), blurz("blurz");
+        blurz(x2, y2, z, c2) = (histogram(x2, y2, z - 2, c2) +
+                                histogram(x2, y2, z - 1, c2) * 4 +
+                                histogram(x2, y2, z, c2) * 6 +
+                                histogram(x2, y2, z + 1, c2) * 4 +
+                                histogram(x2, y2, z + 2, c2));
+        blurx(x2, y2, z, c2) = (blurz(x2 - 2, y2, z, c2) +
+                                blurz(x2 - 1, y2, z, c2) * 4 +
+                                blurz(x2, y2, z, c2) * 6 +
+                                blurz(x2 + 1, y2, z, c2) * 4 +
+                                blurz(x2 + 2, y2, z, c2));
+        blury(x2, y2, z, c2) = (blurx(x2, y2 - 2, z, c2) +
+                                blurx(x2, y2 - 1, z, c2) * 4 +
+                                blurx(x2, y2, z, c2) * 6 +
+                                blurx(x2, y2 + 1, z, c2) * 4 +
+                                blurx(x2, y2 + 2, z, c2));
+
+        // Take trilinear samples to compute the output.
+        val = clamp(ndnorm(x2, y2), 0.0f, 1.0f);
+        Expr zv = val * (1.0f / r_sigma);
+        zi = cast<int>(zv);
+        Expr zf = zv - zi;
+        Expr xf = cast<float>(x2 % s_sigma) / s_sigma;
+        Expr yf = cast<float>(y2 % s_sigma) / s_sigma;
+        Expr xi = x2 / s_sigma;
+        Expr yi = y2 / s_sigma;
+        Func interpolated("interpolated");
+        interpolated(x2, y2, c2) =
+            lerp(lerp(lerp(blury(xi, yi, zi, c2), blury(xi + 1, yi, zi, c2), xf),
+                      lerp(blury(xi, yi + 1, zi, c2), blury(xi + 1, yi + 1, zi, c2), xf), yf),
+                 lerp(lerp(blury(xi, yi, zi + 1, c2), blury(xi + 1, yi, zi + 1, c2), xf),
+                      lerp(blury(xi, yi + 1, zi + 1, c2), blury(xi + 1, yi + 1, zi + 1, c2), xf), yf),
+                 zf);
+
+        // Normalize to get the final output.
+        bilateral_grid(x2, y2) = interpolated(x2, y2, 0) / interpolated(x2, y2, 1);
+      }
+
+      // Scale the resulting values from the bilateral grid back out to [0, 255).
+      Func bgrid_max("bgrid_max"), bgrid_scaled("bgrid_scaled");
+      bgrid_max() = 0.f;
+      bgrid_max() = Halide::max(bgrid_max(), bilateral_grid(imageDom.x, imageDom.y));
+      bgrid_scaled(x, y) = 255.f / bgrid_max() * bilateral_grid(x, y);
+      // TODO (rohany): See if we can avoid materializing this into a three channel image. I'm
+      //  currently doing this for easy output. We can change this to be a compile time flag.
+      depth_map(x, y, c) = cast<uint8_t>(bgrid_scaled(x, y));
 
       // Use the depth map to blur the image. Things further away are blurred with
       // larger blur amounts. We do this by grouping pixel depths into different groups,
@@ -228,7 +293,6 @@ public:
 
       // SCHEDULE.
 
-      // Simple schedule which is way better than the default.
       tileDiff.compute_root();
       minTile.compute_root();
       depth.compute_root();
@@ -236,13 +300,18 @@ public:
       normalizedDepth.compute_root();
       depth_map.compute_root();
       rawBlur.compute_root();
-      depthBlurred.compute_root();
 
       for (auto f : blurLevels) {
         f.compute_root();
       }
       backgroundBlur.compute_root();
       syntheticNoise.compute_root();
+
+      ndmax.compute_root();
+      ndnorm.compute_root();
+      bgrid_max.compute_root();
+      bgrid_scaled.compute_root();
+      bilateral_grid.compute_root();
 
       portrait.compute_root();
 
