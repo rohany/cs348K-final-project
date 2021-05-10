@@ -17,6 +17,8 @@ int main(int argc, char** argv) {
 
   args::ValueFlag<std::string> left(parser, "left image", "left stereo image", {'l', "left"});
   args::ValueFlag<std::string> right(parser, "right image", "right stereo image", {'r', "right"});
+  args::ValueFlag<std::string> seg(parser, "segmented left image", "segmented left image", {'s', "segmented"});
+  args::ValueFlag<std::string> depth(parser, "depth map", "depth map image filename", {'d', "depth_map"});
   args::ValueFlag<std::string> output(parser, "output image", "output image filename", {'o', "output"});
 
   try {
@@ -38,13 +40,20 @@ int main(int argc, char** argv) {
 
   Halide::Runtime::Buffer<uint8_t> inLeft = Halide::Tools::load_image(args::get(left));
   Halide::Runtime::Buffer<uint8_t> inRight = Halide::Tools::load_image(args::get(right));
-  Halide::Runtime::Buffer<uint8_t> out(inLeft.width(), inLeft.height(), inLeft.channels());
+  Halide::Runtime::Buffer<uint8_t> segmented = Halide::Tools::load_image(args::get(seg));
+  Halide::Runtime::Buffer<uint8_t> depthMap(inLeft.width(), inLeft.height(), inLeft.channels());
+  Halide::Runtime::Buffer<uint8_t> portrait(inLeft.width(), inLeft.height(), inLeft.channels());
 
 
-  auto result = portrait_gen(inLeft, inRight, out);
+  auto result = portrait_gen(inLeft, inRight, segmented, depthMap, portrait);
   assert(result == 0);
 
-  Halide::Tools::save_image(out, args::get(output));
+  // Optionally save the depth map if we were asked to.
+  if (depth) {
+    Halide::Tools::save_image(depthMap, args::get(depth));
+  }
+
+  Halide::Tools::save_image(portrait, args::get(output));
 
   return 0;
 }
