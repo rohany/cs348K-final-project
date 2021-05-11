@@ -250,8 +250,13 @@ public:
 
       // Use the depth map to blur the image. Things further away are blurred with
       // larger blur amounts. We do this by grouping pixel depths into different groups,
-      // and using a different blur size for each group.
+      // and using a different blur size for each group. A gaussian blur looks slightly
+      // better than a standard box blur, so we use that here. It's unclear which is used
+      // in the paper.
       int numBlurLevels = 5;
+      float sigma = 2.5f;
+      Func gaussian("gaussian");
+      gaussian(x, y) = cast<float_t>(exp(-((x * x + y * y) / (2.f * sigma * sigma))) / Expr(2.f * M_PI * sigma * sigma));
       std::vector<Func> blurLevels(numBlurLevels);
       std::vector<int> cutoffs{15, 30, 45, 60, 256};
       std::vector<int> blurDimSizes{15, 12, 9, 6, 3};
@@ -259,12 +264,12 @@ public:
         RDom dom(-blurDimSizes[i], 2 * blurDimSizes[i] + 1, -blurDimSizes[i], 2 * blurDimSizes[i] + 1);
         blurLevels[i](x, y, c) = Tuple(0.f, 0.f);
         auto val = blurLevels[i](x, y, c)[0];
-        auto count = blurLevels[i](x, y, c)[1];
+        auto norm = blurLevels[i](x, y, c)[1];
         // We don't include pixels from within the mask in the blur to avoid colors
         // from the foreground leaking into the background.
-        Expr newVal = Halide::select(cSegmented(x + dom.x, y + dom.y) == 255.f, val + cInputLeft(x + dom.x, y + dom.y, c), val);
-        Expr newCount = Halide::select(cSegmented(x + dom.x, y + dom.y) == 255.f, count + 1.f, count);
-        blurLevels[i](x, y, c) = Tuple(newVal, newCount);
+        Expr newVal = Halide::select(cSegmented(x + dom.x, y + dom.y) == 255.f, val + gaussian(dom.x, dom.y) * cInputLeft(x + dom.x, y + dom.y, c), val);
+        Expr newNorm = Halide::select(cSegmented(x + dom.x, y + dom.y) == 255.f, norm + gaussian(dom.x, dom.y), norm);
+        blurLevels[i](x, y, c) = Tuple(newVal, newNorm);
       }
 
       // Based on the value of the depth map at a pixel, choose the right blur element.
@@ -300,6 +305,7 @@ public:
       depth_map.compute_root();
       rawBlur.compute_root();
 
+      gaussian.compute_root();
       for (auto f : blurLevels) {
         f.compute_root();
       }
