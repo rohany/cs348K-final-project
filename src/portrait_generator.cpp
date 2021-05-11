@@ -155,9 +155,8 @@ public:
       // This setup makes close pixels darker.
       normalizedDepth(x, y) = 255.f - (cdepth * 255.f / maxDepth());
 
-      // Use the segmented image to smooth the depth map. We'll do this with a median blur.
-      // A gaussian blur doesn't smooth the image as much when tested.
-      // TODO (rohany): Try doing this after the bilateral filter.
+      // Use the segmented image to smooth the depth map. We'll do this with a median blur, as that
+      // is what is used by the paper.
       Func rawBlur("rawBlur");
       std::vector<Expr> exprs;
       for (int i = -2; i <= 2; i++) {

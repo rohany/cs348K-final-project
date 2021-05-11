@@ -30,9 +30,7 @@ int main(int argc, char** argv) {
     std::cerr << e.what() << std::endl;
     std::cerr << parser;
     return 1;
-  }
-  catch (args::ValidationError e)
-  {
+  } catch (args::ValidationError e) {
     std::cerr << e.what() << std::endl;
     std::cerr << parser;
     return 1;
