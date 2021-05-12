@@ -85,6 +85,7 @@ public:
     Input<Buffer<uint8_t>> inputLeft{"inputLeft", 3};
     Input<Buffer<uint8_t>> inputRight{"inputRight", 3};
     Input<Buffer<uint8_t>> segmentedLeft{"segmentedLeft", 2};
+    Input<Buffer<uint8_t>> depthCutoff{"depthCutoff", 0};
     Output<Buffer<uint8_t>> depth_map{"depth_map", 3};
     Output<Buffer<uint8_t>> portrait{"portrait", 3};
 
@@ -106,7 +107,7 @@ public:
       // TODO (rohany): Figure out what we can make these int sizes.
       cInputLeft(x, y, c) = cast<float_t>(Halide::BoundaryConditions::repeat_edge(inputLeft)(x, y, c));
       cInputRight(x, y, c) = cast<float_t>(Halide::BoundaryConditions::repeat_edge(inputRight)(x, y, c));
-      cSegmented(x, y) = cast<float_t>(Halide::select(Halide::BoundaryConditions::repeat_edge(segmentedLeft)(x, y) < 40, 0.0f, 255.f));
+      cSegmented(x, y) = cast<float_t>(Halide::select(Halide::BoundaryConditions::repeat_edge(segmentedLeft)(x, y) < depthCutoff(), 0.0f, 255.f));
 
       RDom tileDiffDom(
           -matchTileSize, (2 * matchTileSize) + 1, // Over the x dimension of the tile.

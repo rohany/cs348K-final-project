@@ -22,6 +22,7 @@ int main(int argc, char** argv) {
   args::ValueFlag<bool> bench(parser, "bench", "benchmark", {'b', "bench"}, false);
   args::ValueFlag<bool> randomData(parser, "random", "use random inputs", {"random"}, false);
 
+  args::ValueFlag<int> depthCutoff(parser, "depthCutoff", "cutoff for include as background for portrait mode", {"depth"}, 40);
   args::ValueFlag<std::string> left(parser, "left image", "left stereo image", {'l', "left"});
   args::ValueFlag<std::string> right(parser, "right image", "right stereo image", {'r', "right"});
   args::ValueFlag<std::string> seg(parser, "segmented left image", "segmented left image", {'s', "segmented"});
@@ -64,6 +65,8 @@ int main(int argc, char** argv) {
     segmented = Halide::Tools::load_image(args::get(seg));
   }
 
+  uint8_t cutoff = args::get(depthCutoff);
+  Halide::Runtime::Buffer<uint8_t> segmentedCutoff = Halide::Runtime::Buffer<uint8_t>::make_scalar(&cutoff);
   Halide::Runtime::Buffer<uint8_t> depthMap(inLeft.width(), inLeft.height(), inLeft.channels());
   Halide::Runtime::Buffer<uint8_t> portrait(inLeft.width(), inLeft.height(), inLeft.channels());
 
@@ -74,14 +77,14 @@ int main(int argc, char** argv) {
     conf.max_time = 10;
     double ms = 0.f;
     if (args::get(useAuto)) {
-      ms = Halide::Tools::benchmark([&]() { portrait_gen_auto(inLeft, inRight, segmented, depthMap, portrait); }, conf);
+      ms = Halide::Tools::benchmark([&]() { portrait_gen_auto(inLeft, inRight, segmented, segmentedCutoff, depthMap, portrait); }, conf);
     } else {
-      ms = Halide::Tools::benchmark([&]() { portrait_gen(inLeft, inRight, segmented, depthMap, portrait); }, conf);
+      ms = Halide::Tools::benchmark([&]() { portrait_gen(inLeft, inRight, segmented, segmentedCutoff, depthMap, portrait); }, conf);
     }
     std::cout << "Completed in " << ms << " ms." << std::endl;
   } else {
     // Otherwise, just run the pipeline.
-    assert(portrait_gen(inLeft, inRight, segmented, depthMap, portrait) == 0);
+    assert(portrait_gen(inLeft, inRight, segmented, segmentedCutoff, depthMap, portrait) == 0);
   }
 
   // If we weren't running with random data, then save data to output files.
