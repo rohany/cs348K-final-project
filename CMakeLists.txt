@@ -9,13 +9,16 @@ set(CMAKE_CXX_EXTENSIONS NO)
 find_package(Halide REQUIRED)
 
 # Generator.
-add_executable(portrait.generator src/portrait_generator.cpp)
+add_executable(portrait.generator src/portrait_generator.cpp src/benchmark.h)
 target_link_libraries(portrait.generator PRIVATE Halide::Generator)
 
 add_halide_library(portrait_gen FROM portrait.generator)
+add_halide_library(portrait_gen_auto FROM portrait.generator
+                   GENERATOR portrait_gen
+                   AUTOSCHEDULER Halide::Mullapudi2016)
 
 # Main executable.
-add_executable(portrait src/portrait_main.cpp src/args.hxx)
+add_executable(portrait src/portrait_main.cpp src/args.hxx src/benchmark.h)
 # TODO (rohany): Can potentially add compilation options here.
 # target_compile_options(portrait)
 target_link_libraries(portrait
@@ -24,4 +27,5 @@ target_link_libraries(portrait
                       Halide::Runtime
                       Halide::ImageIO
                       portrait_gen
+                      portrait_gen_auto
                      )

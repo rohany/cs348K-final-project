@@ -1,4 +1,5 @@
 #include "Halide.h"
+#include "benchmark.h"
 #include <vector>
 
 namespace {
@@ -296,31 +297,37 @@ public:
       ));
 
       // SCHEDULE.
+      if (auto_schedule) {
+        inputLeft.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
+        inputRight.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
+        segmentedLeft.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}});
+        depth_map.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
+        portrait.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
+      } else {
+        tileDiff.compute_root();
+        minTile.compute_root();
+        depth.compute_root();
+        maxDepth.compute_root();
+        normalizedDepth.compute_root();
+        depth_map.compute_root();
+        rawBlur.compute_root();
 
-      tileDiff.compute_root();
-      minTile.compute_root();
-      depth.compute_root();
-      maxDepth.compute_root();
-      normalizedDepth.compute_root();
-      depth_map.compute_root();
-      rawBlur.compute_root();
+        gaussian.compute_root();
+        for (auto f : blurLevels) {
+          f.compute_root();
+        }
+        backgroundBlur.compute_root();
+        syntheticNoise.compute_root();
 
-      gaussian.compute_root();
-      for (auto f : blurLevels) {
-        f.compute_root();
+        ndmax.compute_root();
+        ndnorm.compute_root();
+        bgrid_max.compute_root();
+        bgrid_scaled.compute_root();
+        bilateral_grid.compute_root();
+        portrait.compute_root();
+
+        portrait.print_loop_nest();
       }
-      backgroundBlur.compute_root();
-      syntheticNoise.compute_root();
-
-      ndmax.compute_root();
-      ndnorm.compute_root();
-      bgrid_max.compute_root();
-      bgrid_scaled.compute_root();
-      bilateral_grid.compute_root();
-
-      portrait.compute_root();
-
-      portrait.print_loop_nest();
     }
 };
 
