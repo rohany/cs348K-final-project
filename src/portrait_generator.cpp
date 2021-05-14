@@ -326,19 +326,31 @@ public:
           auto blur = blurLevels[i];
           blur.compute_root();
 
+          if (i != 0) {
+            blur.compute_with(blurLevels[i - 1], x);
+            blur.update().compute_with(blurLevels[i - 1].update(), x);
+          }
+
+          // We use a smaller tile size for the larger blurs, since the larger blurs
+          // act as larger tiles.
+          int t;
+          if (i < 2) {
+            t = 32;
+          } else {
+            t = tsize;
+          }
+
           blur.parallel(c)
             .parallel(y)
             .vectorize(x, vec)
             ;
           blur.update()
-              .tile(x, y, xi, yi, tsize, tsize)
+              .tile(x, y, xi, yi, t, t)
               .parallel(c)
               .parallel(y)
               .parallel(x)
               // A larger vector width seems to do better here.
               .vectorize(xi, 16)
-              // This doesn't seem to have too much of an impact on execution time,
-              // but affects compilation times alot.
               .unroll(blurDoms[i].x, 3)
               ;
         }
@@ -378,6 +390,7 @@ public:
         histogram.compute_at(blurz, y2);
         histogram.update()
             .reorder(c2, r.x, r.y, x2, y2)
+            .parallel(y2)
             .unroll(c2);
         blurx.compute_root()
             .tile(x2, y2, xi, yi, tsize, tsize)
