@@ -179,11 +179,13 @@ public:
       // I think is a different concept, but helps remove noise in the output of depth map estimator.
       // This implementation of the bilateral grid is adapted from the implementation at
       // https://github.com/halide/Halide/blob/master/apps/bilateral_grid/bilateral_grid_generator.cpp.
-      Func ndmax, ndnorm;
+      Func ndmax, ndnorm, histogram("histogram");
+      Func blurx("blurx"), blury("blury"), blurz("blurz");
       Func bilateral_grid("bilateral_grid");
+      Var x2("x2"), y2("y2"), z("z"), c2("c2");
+      int s_sigma = 8;
+      RDom r(0, s_sigma, 0, s_sigma);
       {
-        Var x2("x2"), y2("y2"), z("z"), c2("c2");
-        int s_sigma = 8;
         float r_sigma = 0.5f;
 
         // Scale normalizedDepth down into the 0.0 -> 1.0 range. The bilateral
@@ -194,16 +196,13 @@ public:
         ndnorm(x, y) = rawBlur(x, y) / ndmax();
 
         // Construct the bilateral grid.
-        RDom r(0, s_sigma, 0, s_sigma);
         Expr val = ndnorm(x2 * s_sigma + r.x - s_sigma / 2, y2 * s_sigma + r.y - s_sigma / 2);
         val = clamp(val, 0.0f, 1.0f);
         Expr zi = cast<int>(val * (1.0f / r_sigma) + 0.5f);
-        Func histogram("histogram");
         histogram(x2, y2, z, c2) = 0.0f;
         histogram(x2, y2, zi, c2) += mux(c2, {val, 1.0f});
 
         // Blur the grid using a five-tap filter.
-        Func blurx("blurx"), blury("blury"), blurz("blurz");
         blurz(x2, y2, z, c2) = (histogram(x2, y2, z - 2, c2) +
                                 histogram(x2, y2, z - 1, c2) * 4 +
                                 histogram(x2, y2, z, c2) * 6 +
@@ -262,8 +261,15 @@ public:
       std::vector<Func> blurLevels(numBlurLevels);
       std::vector<int> cutoffs{15, 30, 45, 60, 256};
       std::vector<int> blurDimSizes{15, 12, 9, 6, 3};
+      std::vector<RDom> blurDoms(numBlurLevels);
       for (int i = 0; i < numBlurLevels; i++) {
+        // Make an easily identifiable name for the blur.
+        std::stringstream blurName;
+        blurName << "blurLevel" << i;
+        blurLevels[i] = Func(blurName.str());
+
         RDom dom(-blurDimSizes[i], 2 * blurDimSizes[i] + 1, -blurDimSizes[i], 2 * blurDimSizes[i] + 1);
+        blurDoms[i] = dom;
         blurLevels[i](x, y, c) = Tuple(0.f, 0.f);
         auto val = blurLevels[i](x, y, c)[0];
         auto norm = blurLevels[i](x, y, c)[1];
@@ -305,27 +311,93 @@ public:
         depth_map.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
         portrait.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
       } else {
-        tileDiff.compute_root();
-        minTile.compute_root();
-        depth.compute_root();
-        maxDepth.compute_root();
-        normalizedDepth.compute_root();
-        depth_map.compute_root();
-        rawBlur.compute_root();
 
+        int vec = 8;
+        int tsize = 64;
+
+        Var xi, yi;
         gaussian.compute_root();
-        for (auto f : blurLevels) {
-          f.compute_root();
-        }
-        backgroundBlur.compute_root();
-        syntheticNoise.compute_root();
+        portrait.compute_root()
+          .parallel(c)
+          .parallel(y)
+          .vectorize(x, vec);
 
-        ndmax.compute_root();
-        ndnorm.compute_root();
+        for (size_t i = 0; i < blurLevels.size(); i++) {
+          auto blur = blurLevels[i];
+          blur.compute_root();
+
+          blur.parallel(c)
+            .parallel(y)
+            .vectorize(x, vec)
+            ;
+          blur.update()
+              .tile(x, y, xi, yi, tsize, tsize)
+              .parallel(c)
+              .parallel(y)
+              .parallel(x)
+              .vectorize(xi, vec)
+              // This doesn't seem to have too much of an impact on execution time,
+              // but affects compilation times alot.
+              .unroll(blurDoms[i].x, 3)
+              ;
+        }
+
+        tileDiff.compute_root();
+        tileDiff.reorder(tileDiffDom.w, x, y)
+          .parallel(y)
+          .vectorize(x, vec)
+          ;
+        tileDiff.update()
+          .reorder(tileDiffDom.w, x, y, tileDiffDom.z)
+          .parallel(y)
+          .vectorize(x, vec)
+          ;
+
+        minTile.compute_root()
+          .parallel(y)
+          .vectorize(x, vec);
+        minTile.update()
+          .parallel(y)
+          .vectorize(x, vec);
+
+        maxDepth.compute_root();
+
+        rawBlur.compute_root()
+          .tile(x, y, xi, yi, tsize, tsize)
+          .parallel(y)
+          .vectorize(xi, vec)
+          ;
+
+        blurz.compute_root()
+            .tile(x2, y2, xi, yi, tsize, tsize)
+            .reorder(c2, z, xi, yi, x2, y2)
+            .parallel(y2)
+            .vectorize(xi, vec)
+            .unroll(c2);
+        histogram.compute_at(blurz, y2);
+        histogram.update()
+            .reorder(c2, r.x, r.y, x2, y2)
+            .unroll(c2);
+        blurx.compute_root()
+            .tile(x2, y2, xi, yi, tsize, tsize)
+            .reorder(c2, z, xi, yi, x2, y2)
+            .parallel(y2)
+            .vectorize(xi, vec)
+            .unroll(z)
+            .unroll(c2);
+        blury.compute_root()
+            .tile(x2, y2, xi, yi, tsize, tsize)
+            .reorder(c2, z, xi, yi, x2, y2)
+            .parallel(y2)
+            .vectorize(xi, vec)
+            .unroll(z)
+            .unroll(c2);
+        bilateral_grid.compute_root()
+            .parallel(y2)
+            .vectorize(x2, vec);
+
         bgrid_max.compute_root();
-        bgrid_scaled.compute_root();
-        bilateral_grid.compute_root();
-        portrait.compute_root();
+        ndmax.compute_root();
 
         portrait.print_loop_nest();
       }
