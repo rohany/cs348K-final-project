@@ -420,6 +420,10 @@ public:
           .parallel(y)
           .vectorize(x, vec)
           ;
+        cSegmented.compute_root()
+          .parallel(y)
+          .vectorize(x, vec)
+          ;
 
         portrait.print_loop_nest();
       }
