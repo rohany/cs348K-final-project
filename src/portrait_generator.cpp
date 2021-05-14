@@ -335,7 +335,8 @@ public:
               .parallel(c)
               .parallel(y)
               .parallel(x)
-              .vectorize(xi, vec)
+              // A larger vector width seems to do better here.
+              .vectorize(xi, 16)
               // This doesn't seem to have too much of an impact on execution time,
               // but affects compilation times alot.
               .unroll(blurDoms[i].x, 3)
@@ -378,19 +379,29 @@ public:
         histogram.update()
             .reorder(c2, r.x, r.y, x2, y2)
             .unroll(c2);
+//        histogram.compute_root()
+//          .parallel(z)
+//          .parallel(c2)
+//          .vectorize(x2, vec)
+//          ;
+//        histogram.update()
+//            .reorder(c2, r.x, r.y, x2, y2)
+//            .parallel(y2)
+//            .vectorize(x2, vec)
+//            .unroll(c2);
         blurx.compute_root()
             .tile(x2, y2, xi, yi, tsize, tsize)
-            .reorder(c2, z, xi, yi, x2, y2)
+            .reorder(c2, xi, yi, x2, y2, z)
+            .parallel(z)
             .parallel(y2)
             .vectorize(xi, vec)
-            .unroll(z)
             .unroll(c2);
         blury.compute_root()
             .tile(x2, y2, xi, yi, tsize, tsize)
-            .reorder(c2, z, xi, yi, x2, y2)
+            .reorder(c2, xi, yi, x2, y2, z)
+            .parallel(z)
             .parallel(y2)
             .vectorize(xi, vec)
-            .unroll(z)
             .unroll(c2);
         bilateral_grid.compute_root()
             .parallel(y2)
@@ -398,6 +409,17 @@ public:
 
         bgrid_max.compute_root();
         ndmax.compute_root();
+
+        cInputLeft.compute_root()
+          .parallel(c)
+          .parallel(y)
+          .vectorize(x, vec)
+          ;
+        cInputRight.compute_root()
+          .parallel(c)
+          .parallel(y)
+          .vectorize(x, vec)
+          ;
 
         portrait.print_loop_nest();
       }
