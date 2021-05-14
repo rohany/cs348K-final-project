@@ -313,7 +313,7 @@ public:
       } else {
 
         int vec = 8;
-        int tsize = 64;
+        int tsize = 128;
 
         Var xi, yi;
         gaussian.compute_root();
@@ -379,16 +379,6 @@ public:
         histogram.update()
             .reorder(c2, r.x, r.y, x2, y2)
             .unroll(c2);
-//        histogram.compute_root()
-//          .parallel(z)
-//          .parallel(c2)
-//          .vectorize(x2, vec)
-//          ;
-//        histogram.update()
-//            .reorder(c2, r.x, r.y, x2, y2)
-//            .parallel(y2)
-//            .vectorize(x2, vec)
-//            .unroll(c2);
         blurx.compute_root()
             .tile(x2, y2, xi, yi, tsize, tsize)
             .reorder(c2, xi, yi, x2, y2, z)

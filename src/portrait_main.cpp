@@ -75,13 +75,13 @@ int main(int argc, char** argv) {
     Halide::Tools::BenchmarkConfig conf;
     // For faster iteration time, the benchmark shouldn't last longer than 10 seconds.
     conf.max_time = 10;
-    double ms = 0.f;
+    double s = 0.f;
     if (args::get(useAuto)) {
-      ms = Halide::Tools::benchmark([&]() { portrait_gen_auto(inLeft, inRight, segmented, segmentedCutoff, depthMap, portrait); }, conf);
+      s = Halide::Tools::benchmark([&]() { portrait_gen_auto(inLeft, inRight, segmented, segmentedCutoff, depthMap, portrait); }, conf);
     } else {
-      ms = Halide::Tools::benchmark([&]() { portrait_gen(inLeft, inRight, segmented, segmentedCutoff, depthMap, portrait); }, conf);
+      s = Halide::Tools::benchmark([&]() { portrait_gen(inLeft, inRight, segmented, segmentedCutoff, depthMap, portrait); }, conf);
     }
-    std::cout << "Completed in " << ms << " ms." << std::endl;
+    std::cout << "Completed in " << s << " s." << std::endl;
   } else {
     // Otherwise, just run the pipeline.
     assert(portrait_gen(inLeft, inRight, segmented, segmentedCutoff, depthMap, portrait) == 0);
