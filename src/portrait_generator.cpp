@@ -391,6 +391,7 @@ public:
         histogram.update()
             .reorder(c2, r.x, r.y, x2, y2)
             .parallel(y2)
+            .vectorize(x2, vec)
             .unroll(c2);
         blurx.compute_root()
             .tile(x2, y2, xi, yi, tsize, tsize)
