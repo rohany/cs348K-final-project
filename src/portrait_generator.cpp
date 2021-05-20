@@ -318,26 +318,47 @@ public:
         portrait.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
       } else if (get_target().has_gpu_feature()) {
 
+	int gpuTileSize = 16;
 	auto basic = [&](Func f, Var x, Var y) {
 	  Var xo, yo, xi, yi;
 	  f.compute_root();
-	  f.gpu_tile(x, y, xo, yo, xi, yi, 8, 8);
+	  f.gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
 	};
-	gaussian.compute_root();
+	basic(gaussian, x, y);
+
+	Var xo("xo"), yo("yo"), xi("xi"), yi("yi");
 
 	basic(portrait, x, y);
-	for (auto& blur : blurLevels) {
-	  basic(blur, x, y);
-	}
+
+	// Fuse the blur levels like in the CPU implementation.
+        for (size_t i = 0; i < blurLevels.size(); i++) {
+          auto blur = blurLevels[i];
+          blur.compute_root();
+
+          if (i != 0) {
+            blur.compute_with(blurLevels[i - 1], xo);
+            blur.update().compute_with(blurLevels[i - 1].update(), xo);
+          }
+
+	  blur
+	    .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+	    ;
+	  blur.update()
+	    .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+	    ;
+        }
 
 	basic(tileDiff, x, y);
+	tileDiff.update().gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
 	basic(minTile, x, y);
+	minTile.update().gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
 
 	maxDepth.compute_root();
 	basic(rawBlur, x, y);
 
 	basic(blurz, x2, y2);
 	basic(histogram, x2, y2);
+	histogram.update().gpu_tile(x2, y2, xo, yo, xi, yi, 16, 16);
 	basic(blurx, x2, y2);
 	basic(blury, x2, y2);
 	basic(bilateral_grid, x2, y2);
