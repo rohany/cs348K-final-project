@@ -317,8 +317,42 @@ public:
         depth_map.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
         portrait.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
       } else if (get_target().has_gpu_feature()) {
-        std::cout << "GPU schedule not yet supported" << std::endl;
-        assert(false);
+
+	auto basic = [&](Func f, Var x, Var y) {
+	  Var xo, yo, xi, yi;
+	  f.compute_root();
+	  f.gpu_tile(x, y, xo, yo, xi, yi, 8, 8);
+	};
+	gaussian.compute_root();
+
+	basic(portrait, x, y);
+	for (auto& blur : blurLevels) {
+	  basic(blur, x, y);
+	}
+
+	basic(tileDiff, x, y);
+	basic(minTile, x, y);
+
+	maxDepth.compute_root();
+	basic(rawBlur, x, y);
+
+	basic(blurz, x2, y2);
+	basic(histogram, x2, y2);
+	basic(blurx, x2, y2);
+	basic(blury, x2, y2);
+	basic(bilateral_grid, x2, y2);
+
+        bgrid_max.compute_root();
+        ndmax.compute_root();
+
+	
+	// cInputLeft.compute_root();
+	// cInputRight.compute_root();
+	basic(cInputLeft, x, y);
+	basic(cInputRight, x, y);
+	basic(cSegmented, x, y);
+	
+	portrait.print_loop_nest();
       } else {
 
         int vec = 8;

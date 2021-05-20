@@ -5,6 +5,7 @@ project(cs348k-final-project)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 set(CMAKE_CXX_EXTENSIONS NO)
+option(PORTRAIT_GPU OFF)
 
 find_package(Halide REQUIRED)
 
@@ -19,10 +20,18 @@ endif()
 
 message(STATUS "Using AutoScheduler: ${PORTRAIT_SCHEDULER}")
 
-add_halide_library(portrait_gen FROM portrait.generator)
-add_halide_library(portrait_gen_auto FROM portrait.generator
-                   GENERATOR portrait_gen
-                   AUTOSCHEDULER "${PORTRAIT_SCHEDULER}")
+if (PORTRAIT_GPU)
+  add_halide_library(portrait_gen FROM portrait.generator TARGETS host-cuda)
+  add_halide_library(portrait_gen_auto FROM portrait.generator
+                     GENERATOR portrait_gen
+		     TARGETS host-cuda
+                     AUTOSCHEDULER "${PORTRAIT_SCHEDULER}")
+else()
+  add_halide_library(portrait_gen FROM portrait.generator)
+  add_halide_library(portrait_gen_auto FROM portrait.generator
+                     GENERATOR portrait_gen
+                     AUTOSCHEDULER "${PORTRAIT_SCHEDULER}")
+endif()
 
 # Main executable.
 add_executable(portrait src/portrait_main.cpp src/args.hxx src/benchmark.h)
