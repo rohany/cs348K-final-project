@@ -86,7 +86,9 @@ public:
     Input<Buffer<uint8_t>> inputRight{"inputRight", 3};
     Input<Buffer<uint8_t>> segmentedLeft{"segmentedLeft", 2};
     Input<Buffer<uint8_t>> depthCutoff{"depthCutoff", 0};
+#ifdef OUTPUT_DEPTH_MAP
     Output<Buffer<uint8_t>> depth_map{"depth_map", 3};
+#endif
     Output<Buffer<uint8_t>> portrait{"portrait", 3};
 
     // Means -size ... 0 ... size.
@@ -102,6 +104,10 @@ public:
     void generate() {
       // ALGORITHM.
       Var x("x"), y("y"), c("c");
+
+#ifndef OUTPUT_DEPTH_MAP
+      Func depth_map("depth_map");
+#endif
 
       Func cInputLeft("cInputLeft"), cInputRight("cInputRight"), cSegmented("cSegmented");
       // TODO (rohany): Figure out what we can make these int sizes.
@@ -310,6 +316,9 @@ public:
         segmentedLeft.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}});
         depth_map.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
         portrait.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
+      } else if (get_target().has_gpu_feature()) {
+        std::cout << "GPU schedule not yet supported" << std::endl;
+        assert(false);
       } else {
 
         int vec = 8;

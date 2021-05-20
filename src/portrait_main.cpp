@@ -77,14 +77,42 @@ int main(int argc, char** argv) {
     conf.max_time = 10;
     double s = 0.f;
     if (args::get(useAuto)) {
-      s = Halide::Tools::benchmark([&]() { portrait_gen_auto(inLeft, inRight, segmented, segmentedCutoff, depthMap, portrait); }, conf);
+      s = Halide::Tools::benchmark([&]() {
+        portrait_gen_auto(
+            inLeft,
+            inRight,
+            segmented,
+            segmentedCutoff,
+#ifdef OUTPUT_DEPTH_MAP
+            depthMap,
+#endif
+            portrait);
+      }, conf);
     } else {
-      s = Halide::Tools::benchmark([&]() { portrait_gen(inLeft, inRight, segmented, segmentedCutoff, depthMap, portrait); }, conf);
+      s = Halide::Tools::benchmark([&]() {
+        portrait_gen(
+            inLeft,
+            inRight,
+            segmented,
+            segmentedCutoff,
+#ifdef OUTPUT_DEPTH_MAP
+            depthMap,
+#endif
+            portrait);
+      }, conf);
     }
     std::cout << "Completed in " << s << " s." << std::endl;
   } else {
     // Otherwise, just run the pipeline.
-    assert(portrait_gen(inLeft, inRight, segmented, segmentedCutoff, depthMap, portrait) == 0);
+    assert(portrait_gen(
+        inLeft,
+        inRight,
+        segmented,
+        segmentedCutoff,
+#ifdef OUTPUT_DEPTH_MAP
+        depthMap,
+#endif
+        portrait) == 0);
   }
 
   // If we weren't running with random data, then save data to output files.
