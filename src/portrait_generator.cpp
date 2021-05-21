@@ -317,20 +317,19 @@ public:
         depth_map.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
         portrait.set_estimates({{0, IMAGE_WIDTH}, {0, IMAGE_HEIGHT}, {0, 3}});
       } else if (get_target().has_gpu_feature()) {
+        int gpuTileSize = 16;
+        Var xo("xo"), yo("yo"), xi("xi"), yi("yi");
+        gaussian
+          .compute_root()
+          .gpu_tile(x, y, xi, yi, gpuTileSize, gpuTileSize)
+          ;
 
-	int gpuTileSize = 16;
-	auto basic = [&](Func f, Var x, Var y) {
-	  Var xo, yo, xi, yi;
-	  f.compute_root();
-	  f.gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
-	};
-	basic(gaussian, x, y);
+        portrait
+          .compute_root()
+          .gpu_tile(x, y, xi, yi, gpuTileSize, gpuTileSize)
+          ;
 
-	Var xo("xo"), yo("yo"), xi("xi"), yi("yi");
-
-	basic(portrait, x, y);
-
-	// Fuse the blur levels like in the CPU implementation.
+        // Fuse the blur levels like in the CPU implementation.
         for (size_t i = 0; i < blurLevels.size(); i++) {
           auto blur = blurLevels[i];
           blur.compute_root();
@@ -340,97 +339,81 @@ public:
             blur.update().compute_with(blurLevels[i - 1].update(), xo);
           }
 
-	  blur
-	    .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
-	    ;
-	  blur.update()
-	    .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
-	    ;
+          blur
+              .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize);
+          blur.update()
+              .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize);
         }
 
-	tileDiff
-	  .compute_root()
-	  .reorder(tileDiffDom.w, x, y)
-	  .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
-	  ;
-	tileDiff.update()
-	  .reorder(tileDiffDom.w, x, y)
-	  .gpu_tile(x, y, xo, yo, xi, yi, 16, 16)
-	  .unroll(tileDiffDom.x)
-	  .unroll(tileDiffDom.y)
-	  ;
+        tileDiff
+            .compute_root()
+            .reorder(tileDiffDom.w, x, y)
+            .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize);
+        tileDiff.update()
+            .reorder(tileDiffDom.w, x, y)
+            .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+            .unroll(tileDiffDom.x)
+            .unroll(tileDiffDom.y);
 
-	minTile
-	  .compute_root()
-	  .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
-	  ;
-	minTile.update()
-	  .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
-	  ;
+        minTile
+            .compute_root()
+            .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize);
+        minTile.update()
+            .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize);
 
-	maxDepth.compute_root();
+        maxDepth.compute_root();
 
-	rawBlur
-	  .compute_root()
-	  .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
-	  ;
+        rawBlur
+            .compute_root()
+            .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize);
 
-	// Apply a similar strategy from scheduling the CPU grid.
-	blurz
-	  .compute_root()
-	  .reorder(c2, z, x2, y2)
-	  .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
-	  .unroll(z)
-	  .unroll(c2)
-	  ;
-	// Compute the histogram at the tiles of blurz.
-	histogram
-	  .reorder(c2, z, x2, y2)
-	  .compute_at(blurz, xi)
-	  .unroll(c2)
-	  .unroll(z)
-	  ;
-	histogram.update()
-	  .reorder(c2, r.x, r.y, x2, y2)
-	  .unroll(c2)
-	  ;
+        // Apply a similar strategy from scheduling the CPU grid.
+        blurz
+            .compute_root()
+            .reorder(c2, z, x2, y2)
+            .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+            .unroll(z)
+            .unroll(c2);
+        // Compute the histogram at the tiles of blurz.
+        histogram
+            .reorder(c2, z, x2, y2)
+            .compute_at(blurz, xi)
+            .unroll(c2)
+            .unroll(z);
+        histogram.update()
+            .reorder(c2, r.x, r.y, x2, y2)
+            .unroll(c2);
 
-	blurx
-	  .compute_root()
-	  .reorder(c2, z, x2, y2)
-	  .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
-	  .unroll(z)
-	  .unroll(c2)
-	  ;
-	blury
-	  .compute_root()
-	  .reorder(c2, z, x2, y2)
-	  .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
-	  .unroll(z)
-	  .unroll(c2)
-	  ;
-	bilateral_grid
-	  .compute_root()
-	  .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
-	  ;
+        blurx
+            .compute_root()
+            .reorder(c2, z, x2, y2)
+            .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+            .unroll(z)
+            .unroll(c2);
+        blury
+            .compute_root()
+            .reorder(c2, z, x2, y2)
+            .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+            .unroll(z)
+            .unroll(c2);
+        bilateral_grid
+            .compute_root()
+            .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize);
 
         bgrid_max.compute_root();
         ndmax.compute_root();
-	
-	cInputLeft
-	  .compute_root()
-	  .gpu_tile(x, y, xi, yi, gpuTileSize, gpuTileSize)
-	  ;
-	cInputRight
-	  .compute_root()
-	  .gpu_tile(x, y, xi, yi, gpuTileSize, gpuTileSize)
-	  ;
-	cSegmented
-	  .compute_root()
-	  .gpu_tile(x, y, xi, yi, gpuTileSize, gpuTileSize)
-	  ;
-	
-	portrait.print_loop_nest();
+
+        cInputLeft
+            .compute_root()
+            .gpu_tile(x, y, xi, yi, gpuTileSize, gpuTileSize);
+        cInputRight
+            .compute_root()
+            .gpu_tile(x, y, xi, yi, gpuTileSize, gpuTileSize);
+        cSegmented
+            .compute_root()
+            .gpu_tile(x, y, xi, yi, gpuTileSize, gpuTileSize);
+
+        portrait.print_loop_nest();
       } else {
 
         int vec = 8;
