@@ -185,7 +185,7 @@ public:
       // I think is a different concept, but helps remove noise in the output of depth map estimator.
       // This implementation of the bilateral grid is adapted from the implementation at
       // https://github.com/halide/Halide/blob/master/apps/bilateral_grid/bilateral_grid_generator.cpp.
-      Func ndmax, ndnorm, histogram("histogram");
+      Func ndmax("ndmax"), ndnorm("ndnorm"), histogram("histogram");
       Func blurx("blurx"), blury("blury"), blurz("blurz");
       Func bilateral_grid("bilateral_grid");
       Var x2("x2"), y2("y2"), z("z"), c2("c2");
@@ -515,8 +515,32 @@ public:
             .parallel(y2)
             .vectorize(x2, vec);
 
-        bgrid_max.compute_root();
+        // Use rfactor to parallelize the max() reductions over the image.
+        Var rfacx("rfac"), rfacy("rfacy");
+        {
+          Func intermediate = ndmax.update().rfactor({{imageDom.y, rfacy}, {imageDom.x, rfacx}});
+          intermediate.compute_root()
+              .parallel(rfacy)
+              .vectorize(rfacx, vec)
+              ;
+          intermediate.update()
+              .parallel(rfacy)
+              .parallel(rfacx, vec)
+              ;
+        }
         ndmax.compute_root();
+        {
+          Func intermediate = bgrid_max.update().rfactor({{imageDom.y, rfacy}, {imageDom.x, rfacx}});
+          intermediate.compute_root()
+              .parallel(rfacy)
+              .vectorize(rfacx, vec)
+              ;
+          intermediate.update()
+              .parallel(rfacy)
+              .parallel(rfacx, vec)
+              ;
+        }
+        bgrid_max.compute_root();
 
         cInputLeft.compute_root()
           .parallel(c)
