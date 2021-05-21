@@ -400,8 +400,30 @@ public:
             .compute_root()
             .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize);
 
-        bgrid_max.compute_root();
+        // Use rfactor to parallelize the max() reductions over the image.
+        Var rfacx("rfac"), rfacy("rfacy");
+	{
+          Func intermediate = ndmax.update().rfactor({{imageDom.y, rfacy}, {imageDom.x, rfacx}});
+	  intermediate
+	    .compute_root()
+	    .gpu_tile(rfacx, rfacy, xi, yi, gpuTileSize, gpuTileSize)
+	    ;
+	  intermediate.update()
+	    .gpu_tile(rfacx, rfacy, xi, yi, gpuTileSize, gpuTileSize)
+	    ;
+	}
         ndmax.compute_root();
+	{
+          Func intermediate = bgrid_max.update().rfactor({{imageDom.y, rfacy}, {imageDom.x, rfacx}});
+	  intermediate
+	    .compute_root()
+	    .gpu_tile(rfacx, rfacy, xi, yi, gpuTileSize, gpuTileSize)
+	    ;
+	  intermediate.update()
+	    .gpu_tile(rfacx, rfacy, xi, yi, gpuTileSize, gpuTileSize)
+	    ;
+	}
+        bgrid_max.compute_root();
 
         cInputLeft
             .compute_root()
