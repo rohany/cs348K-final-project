@@ -541,11 +541,11 @@ public:
           Func intermediate = ndmax.update().rfactor({{imageDom.y, rfacy}, {imageDom.x, rfacx}});
           intermediate.compute_root()
               .parallel(rfacy)
-              .vectorize(rfacx, vec)
+              .vectorize(rfacx, 64)
               ;
           intermediate.update()
               .parallel(rfacy)
-              .parallel(rfacx, vec)
+              .parallel(rfacx, 64)
               ;
         }
         ndmax.compute_root();
@@ -553,11 +553,11 @@ public:
           Func intermediate = bgrid_max.update().rfactor({{imageDom.y, rfacy}, {imageDom.x, rfacx}});
           intermediate.compute_root()
               .parallel(rfacy)
-              .vectorize(rfacx, vec)
+              .vectorize(rfacx, 64)
               ;
           intermediate.update()
               .parallel(rfacy)
-              .parallel(rfacx, vec)
+              .parallel(rfacx, 64)
               ;
         }
         bgrid_max.compute_root();
