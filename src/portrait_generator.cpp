@@ -348,30 +348,87 @@ public:
 	    ;
         }
 
-	basic(tileDiff, x, y);
-	tileDiff.update().gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
-	basic(minTile, x, y);
-	minTile.update().gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
+	tileDiff
+	  .compute_root()
+	  .reorder(tileDiffDom.w, x, y)
+	  .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+	  ;
+	tileDiff.update()
+	  .reorder(tileDiffDom.w, x, y)
+	  .gpu_tile(x, y, xo, yo, xi, yi, 16, 16)
+	  .unroll(tileDiffDom.x)
+	  .unroll(tileDiffDom.y)
+	  ;
+
+	minTile
+	  .compute_root()
+	  .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+	  ;
+	minTile.update()
+	  .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+	  ;
 
 	maxDepth.compute_root();
-	basic(rawBlur, x, y);
 
-	basic(blurz, x2, y2);
-	basic(histogram, x2, y2);
-	histogram.update().gpu_tile(x2, y2, xo, yo, xi, yi, 16, 16);
-	basic(blurx, x2, y2);
-	basic(blury, x2, y2);
-	basic(bilateral_grid, x2, y2);
+	rawBlur
+	  .compute_root()
+	  .gpu_tile(x, y, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+	  ;
+
+	// Apply a similar strategy from scheduling the CPU grid.
+	blurz
+	  .compute_root()
+	  .reorder(c2, z, x2, y2)
+	  .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+	  .unroll(z)
+	  .unroll(c2)
+	  ;
+	// Compute the histogram at the tiles of blurz.
+	histogram
+	  .reorder(c2, z, x2, y2)
+	  .compute_at(blurz, xi)
+	  .unroll(c2)
+	  .unroll(z)
+	  ;
+	histogram.update()
+	  .reorder(c2, r.x, r.y, x2, y2)
+	  .unroll(c2)
+	  ;
+
+	blurx
+	  .compute_root()
+	  .reorder(c2, z, x2, y2)
+	  .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+	  .unroll(z)
+	  .unroll(c2)
+	  ;
+	blury
+	  .compute_root()
+	  .reorder(c2, z, x2, y2)
+	  .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+	  .unroll(z)
+	  .unroll(c2)
+	  ;
+	bilateral_grid
+	  .compute_root()
+	  .gpu_tile(x2, y2, xo, yo, xi, yi, gpuTileSize, gpuTileSize)
+	  ;
 
         bgrid_max.compute_root();
         ndmax.compute_root();
-
 	
-	// cInputLeft.compute_root();
-	// cInputRight.compute_root();
-	basic(cInputLeft, x, y);
-	basic(cInputRight, x, y);
-	basic(cSegmented, x, y);
+	cInputLeft
+	  .compute_root()
+	  .gpu_tile(x, y, xi, yi, gpuTileSize, gpuTileSize)
+	  ;
+	cInputRight
+	  .compute_root()
+	  .gpu_tile(x, y, xi, yi, gpuTileSize, gpuTileSize)
+	  ;
+	cSegmented
+	  .compute_root()
+	  .gpu_tile(x, y, xi, yi, gpuTileSize, gpuTileSize)
+	  ;
 	
 	portrait.print_loop_nest();
       } else {
