@@ -1,2 +1,5 @@
 build/*
 cmake-build-debug/*
+*.aux
+*.log
+*.pdf
