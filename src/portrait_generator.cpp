@@ -407,9 +407,9 @@ public:
                                                       {imageDom.x, rfacx}});
           intermediate
               .compute_root()
-              .gpu_tile(rfacx, rfacy, xi, yi, gpuTileSize, gpuTileSize);
+              .gpu_tile(rfacx, rfacy, xi, yi, 32, 32);
           intermediate.update()
-              .gpu_tile(rfacx, rfacy, xi, yi, gpuTileSize, gpuTileSize);
+              .gpu_tile(rfacx, rfacy, xi, yi, 32, 32);
         }
         ndmax.compute_root();
         {
@@ -417,9 +417,9 @@ public:
                                                           {imageDom.x, rfacx}});
           intermediate
               .compute_root()
-              .gpu_tile(rfacx, rfacy, xi, yi, gpuTileSize, gpuTileSize);
+              .gpu_tile(rfacx, rfacy, xi, yi, 32, 32);
           intermediate.update()
-              .gpu_tile(rfacx, rfacy, xi, yi, gpuTileSize, gpuTileSize);
+              .gpu_tile(rfacx, rfacy, xi, yi, 32, 32);
         }
         bgrid_max.compute_root();
 
