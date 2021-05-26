@@ -1,8 +1,19 @@
 \documentclass{article}
 
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage[ruled,vlined]{algorithm2e}
+
+\usepackage{caption}
+\usepackage{subcaption}
+
+\geometry{margin=1in}
+
 \author{Rohan Yadav}
-\title{Lecture 1 Reading Summary}
+\title{Final Project Writeup}
 \date{}
+
+\bibliographystyle{acm}
 
 \begin{document}
 
@@ -10,14 +21,199 @@
 
 \section{Background}
 
+For my final project, I implemented a simple version of the common portrait mode feature supported by many mobile devices, and tuned the implementations for CPU and GPU targets.
+%
+In particular, I implemented components of portrait mode as described by Wadhwa et al~\cite{portrait} in the Halide domain specific language, and implemented schedules for both CPUs and GPUs.
+%
+My pipeline takes as input two stereo image pairs, and a foreground-background segmented image to define what portion of the image should remain in focus.
+%
+The goals of my project were to create aesthetically pleasing result images, and to tune the implementation to beat or equal the Halide autoschedulers.
+%
+Regarding quality of generated images, my pipeline generates good quality result images for a constrained set of inputs.
+%
+For performance, I compare my hand-tuned CPU schedule to the Mullapudi2016 and Adams2019 autoschedulers and find that my schedule has slightly better performance than both, and my hand-tuned GPU schedule equals the performance of the Li2018 GPU autoscheduler.
+
 \section{Approach}
 
+At a high level, an algorithm to perform a portrait mode style blur on an image must select what is the foreground and 
+background of the image, and then blur the background component of the image. 
+%
+In order to get a more aesthetically pleasing in the background, it is beneficial to blur objects that are farther away
+than those that are close to the camera.
+%
+To figure out what objects are far away, systems implement a form of depth estimation on the input images.
+%
+The reference system described by Wadhwa et al has the following high level stages.
+%
+\begin{enumerate}
+    \item Apply an image segmentation network to identify the human in the foreground.
+    \item Use dual-pixel hardware to collect a stereo image pair of the target photo.
+    \item Use the stereo image pair to estimate the depth of each pixel in the image.
+    \item Use the calculated depth information and segmented image to apply varying amounts of blur to the image.
+\end{enumerate}
+
+My implementation follows this high-level idea, but relaxes what components are produced by the pipeline or available from the underlying hardware.
+%
+In particular, I use an existing image segmentation network to perform foreground-background segementation, and treat this component as an input
+to my pipeline.
+%
+Next, I do not have access to the raw dual-pixel (or Apple equivalent) data, so I used stereo image pairs from the Holopix50k~\cite{holopix} dataset.
+%
+These images have the same properties as the dual-pixel inputs to Wadhwa's pipeline -- they are vertically aligned and taken from a small distance apart.
+%
+After these modifications, my pipeline follows the same structure as Wadhwa's: I use the stereo image pairs to compute per-pixel depth information, 
+and use the depth information along with the segmented image to produce the final output.
+%
+My full pipeline is described as psuedocode in Algorithm~\ref{alg:portrait}.
+%
+The tile minimization is performed via an align-and-merge algorithm, similar to the ideas used in Assignment 1.
+%
+Computation of disparity is performed by using similar triangle identities, as described by Wadhwa et al.
+%
+At a high level, at pixel, the closest tile that has a minimum difference from a tile around the pixel is found.
+%
+This minimum tile corresponds to that same pixel as viewed from the position of the camera taking the other
+stereo image.
+%
+Therefore, the farther away the pixel and its match in the other image are, the closer the pixel is to the camera,
+because things close to the camera translate the most when taking the photo from a different angle.
+%
+The different amount of blurs vary from 15-pixel wide blurs for very far objects, and 3-pixel wide blurs for close objects.
+%
+Synthetic noise is added back to the image so that the foreground and background have similar amounts of noise.
+%
+Otherwise, the blurred background appears to have less noise than the foreground.
+
+My pipeline performs a simplified version of the steps performed by Wadhwa's pipeline.
+%
+In particular, they perform a confidence based version of the depth estimation procedure, and smooth the depth information with
+a bilateral solver. Implementation of a bilateral solver was beyond my knowledge / Halide programming skills, so I used a bilateral
+grid to perform edge-aware smoothing.
+
+\begin{algorithm}
+\caption{Portait Mode Pipeline}
+\label{alg:portrait}
+    \SetKwInOut{Input}{input}
+    \SetKwInOut{Output}{output}
+
+    \Input{Stereo image pair $I_l, I_r$, Segmented image $I_s$}
+    \Output{Image with synthetic depth-of-field applied}
+    \ForEach{\normalfont{pixel} $p \in I_l$}{
+        $t \gets$ tile around $p$ \;
+        $t' \gets$ tile in $I_r$ s.t. diff($t, t'$) is minimized \;
+        minTile$(p) \gets $ coordinates of $t'$
+    }
+    disparity$(p)$ $\gets$ use coordinates at minTile$(p)$ to estimate disparity \;
+    depth$(p) \gets$ inverse of disparity$(p)$ \;
+    \tcc{Blur the depth information to smooth it out.}
+    depth = medianBlur(depth) \;
+    depth = bilateralGridBlur(depth) \;
+    \tcc{Start to render the output image.}
+    backBlurred = blur $I_l$ with different amounts, depending on depth \;
+    noisy = apply synthetic noise to backBlurred \;
+    portrait = select from noisy or $I_l$ depending on value in $I_s$ \;
+    \Return{\normalfont{portrait}}
+\end{algorithm}
+
 \subsection{Results}
+
+Figure~\ref{fig:ios} displays sets of inputs to my pipeline, the computed depth information, and the final output image.
+%
+Figure~\ref{fig:good} contains sets of additional output images from my pipeline that I thought were good quality result images.
+%
+As can been seen in the figures, the resulting images are indeed aesthetically pleasing, and look similar to outputs that may
+be generated from a mobile phone's portrait mode setting.
+%
+The computed depth maps have mediocre resemblance to the depths that one might imagine from the input image, but were very noisy,
+even after multiple forms of smoothing and blurring.
+%
+This noise arises from tile minimization approach to estimating the depth.
+%
+When all of the tiles around a target pixel are similar in the other stereo image due to repeated backgrounds, the matching
+algorithm thinks that the pixel is in the same place in both images, i.e. it is very far from the camera.
+%
+This could be improved in the future by fully implementing the confidence based approach of Wadhwa et al -- such regions would be
+marked as low confidence by the algorithm, and then lower confidence areas could be smoothed better.
+%
+However, the remaining noise in the depth map did not heavily affect the resulting blurred images.
+%
+One benefit of using a separate segmentation network was the variety of targets that could be segmented in comparison with Wadhwa's
+pipeline.
+%
+The image segmentation network in Wadhwa's pipeline was trained for segmentation of humans.
+%
+If a human could not be identified in the photo, the pipeline fell back to using only dual-pixel depth map data to perform the
+blurring.
+%
+In my situation, the segmentation network is treated as an input to the pipeline, and can thus be trained to segment any desired
+inputs.
+%
+This allows me to generate portait mode style images for non-human targets, such as cats (show below) and food (not shown).
+
+\begin{figure*}
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=0.5\textwidth]{../data/dude-left}
+        \includegraphics[width=0.5\textwidth]{../data/dude-seg-clean}
+        \includegraphics[width=0.5\textwidth]{../output/dude-depth}
+        \includegraphics[width=0.5\textwidth]{../output/dude-portrait}
+        \caption{Inputs and outputs for a picture of a guy.}
+    \end{subfigure}
+
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=0.5\textwidth]{../data/cat2-left}
+        \includegraphics[width=0.5\textwidth]{../data/cat2-seg-clean}
+        \includegraphics[width=0.5\textwidth]{../output/cat2-depth}
+        \includegraphics[width=0.5\textwidth]{../output/cat2-portrait}
+        \caption{Inputs and outputs for a picture of a cat.}
+    \end{subfigure}
+
+    \caption{Two sets of example inputs and generated outputs from my pipeline. The top left image in each group of four is the left stereo image
+    (the right stereo image looks mostly identical so it is excluded). The top right image is the input segmented image. The bottom left image is
+    the depth map generated by my pipeline, where darker colors represent close objects. The final output is the bottom right image.}
+    \label{fig:ios}
+\end{figure*}
+
+\begin{figure*}
+        \includegraphics[width=0.5\textwidth]{../output/baby-portrait}
+        \includegraphics[width=0.5\textwidth]{../output/cat-portrait}
+        \includegraphics[width=0.5\textwidth]{../output/glasses-portrait}
+        \includegraphics[width=0.5\textwidth]{../output/punch-portrait}
+        \caption{Selected generated images of good visual quality.}
+        \label{fig:good}
+\end{figure*}
 
 \section{Performance}
 
 \subsection{Performance Optimization}
 
-\subsection{Results}
+\subsubsection{CPU Performance Tuning}
+
+\begin{itemize}
+    \item Condense the notes from notion into some coherent paragraphs about the optimization process.
+\end{itemize}
+
+\subsubsection{GPU Performance Tuning}
+
+\begin{itemize}
+    \item There isn't much to say here other than computing everything at the root and in parallel was enough to get the perf.
+\end{itemize}
+
+\subsection{Experiments}
+
+\subsubsection{Experimental Setup}
+
+I performed experiments on two different machines. The first is my local MacBook, containing a 4-core Intel CPU. 
+%
+The second is a node in the Sapling development cluster at Stanford, with a 20-core Intel Xeon CPU and an NVIDIA Tesla P100 GPU.
+
+\subsubsection{Results and Analysis}
+
+\begin{itemize}
+    \item Show a speedup plot of the CPU schedule on Macbook + on Sapling
+    \item Show a table of the execution time of each schedule on different machines
+    \item Do some performance analysis of the results -- i believe that the application is compute bound.
+\end{itemize}
+
+\bibliography{biblio.bib}
 
 \end{document}
