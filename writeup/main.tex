@@ -153,6 +153,8 @@ inputs.
 %
 This allows me to generate portait mode style images for non-human targets, such as cats (shown below) and food (not shown).
 
+The generated images in Figure~\ref{fig:good} are relatively high quality, and I believe that I achieved my goals in terms of output image quality.
+
 \begin{figure*}
     \begin{subfigure}{\textwidth}
         \includegraphics[width=0.5\textwidth]{../data/dude-left}
@@ -189,17 +191,58 @@ This allows me to generate portait mode style images for non-human targets, such
 
 \subsection{Performance Optimization}
 
+My performance optimization process was using Halide's scheduling primitives to optimize the performance of my pipeline.
+%
+My performance targets were the available Halide autoschedulers, as I was interested in seeing how well I could schedule the pipeline -- I did not
+consider algorithmic changes to the pipeline to increase the performance.
+
 \subsubsection{CPU Performance Tuning}
 
-\begin{itemize}
-    \item Condense the notes from notion into some coherent paragraphs about the optimization process.
-\end{itemize}
+I recorded the execution time of my pipeline throughout the optimization process in Figure~\ref{fig:opti}.
+%
+At a moderate level of detail, the optimization steps I took were as follows:
+\begin{enumerate}
+  \item I started by computing all functions at the root, which took around 7.4s on a 512x512 image.
+  \item I inlined all functions that did simple per-pixel operations, bringing me to 7s.
+  \item I parallelized the different level blur operations, bringing me to 5.6s. Straightforward parallelization
+      of chunks of rows led to this speedup.
+  \item Parallelizing and reordering the computation of the aligning and merging process brough me to 4s. The computation was
+      reordered to be more friendly to the memory layout of the images, and parallelism was done in a similar way as the blurs.
+  \item I incorporated an existing schedule for the bilateral grid to get to 1.5s. This schedule was relatively straightforward,
+      and paralellized a dimension of the grid and vectorized operations per grid point.
+  \item I tuned this schedule more by tiling the phases, parallelizing over more components, and reordering the schedule for my data
+      layout to get to 1.1s.
+  \item I went back to vectorize the blur operations by giving each pixel a vector lnae, which led to a runtime of 0.63s.
+  \item I parallelized and vectorized remaining stages of the pipeline (like the median blur) to get down to 0.5s.
+  \item I was stuck here for a while, and noticed that the boundary conditions were not computed at the root. As I understood, this meant
+      the boundary operations were all inlined, which potentially led to overhead when accessing them. I lifted these to the root and
+      parallelized/vectorized them (rows/pixels) and saw a large speedup to 0.17s. At this point, the pipeline had equal performance to
+      the Mullapudi2016 autoscheduler.
+  \item The final optimization that had an affect was the use the \texttt{compute\_with} command to compute all of the different blur levels
+      for a pixel at the same place to maximize the amount of data reuse. This dropped me down to 0.12s.
+  \item I played around with the \texttt{rfactor} optimization to have reduction operations be parallelized, but this did not lead to
+      any noticeable performance improvements.
+\end{enumerate}
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=0.75\textwidth]{cpu_opti_graph}
+    \caption{Optimization progress of the pipeline on CPU on my MacBook.}
+    \label{fig:opti}
+\end{figure*}
 
 \subsubsection{GPU Performance Tuning}
 
-\begin{itemize}
-    \item There isn't much to say here other than computing everything at the root and in parallel was enough to get the perf.
-\end{itemize}
+The performance tuning process for GPUs was definitely less interesting than the CPU optimization process.
+%
+The initial (dumb) strategy of performing all computations at the root and parallelizing all operations so that
+each pixel was mapped to a GPU thread was enough to equal the performance of the Li2018 autoscheduler.
+%
+I made several attempts to apply optimizations that performed well for CPUs for the GPU schedule that resulted
+in no improvements.
+%
+Most surpisingly, using \texttt{rfactor} to parallelize reduction operations had no benefit, even though without
+that scheduling operation, reductions over the entire image were occurring on a single (slow) GPU thread.
 
 \subsection{Experiments}
 
@@ -207,15 +250,64 @@ This allows me to generate portait mode style images for non-human targets, such
 
 I performed experiments on two different machines. The first is my local MacBook, containing a 4-core Intel CPU. 
 %
-The second is a node in the Sapling development cluster at Stanford, with a 20-core Intel Xeon CPU and an NVIDIA Tesla P100 GPU.
+The second is a node in the Sapling development cluster at Stanford, with an NVIDIA Tesla P100 GPU.
 
 \subsubsection{Results and Analysis}
 
-\begin{itemize}
-    \item Show a speedup plot of the CPU schedule on Macbook + on Sapling
-    \item Show a table of the execution time of each schedule on different machines
-    \item Do some performance analysis of the results -- i believe that the application is compute bound.
-\end{itemize}
+Overall results are displayed in Figure~\ref{fig:results}.
+%
+Figure~\ref{fig:speedup} includes a speedup plot of my pipeline with increasing numbers of CPU cores.
+%
+Figure~\ref{fig:table} is a shootout experiment of my schedule for CPUs and a GPU against the autoschedulers distributed as part of Halide.
+
+Figure~\ref{fig:speedup} shows that the pipeline achieves perfect speedup until 4 cores, and then flattens out at 8 cores.
+%
+This is expected, as my laptop only has 4 cores. At 8 "cores", hyperthreads are being used.
+%
+This application is compute bound, as the large blur operations (up to 15 wide) and "align and merge" style operations perform many operations
+for each data element loaded from memory.
+%
+Since the application is compute bound, it achieves perfect speedup as more compute resources are given to it, as can be seein in Figure~\ref{fig:speedup}.
+%
+Once moving to hyperthreads, additional benefits are not as pronounced as the hyperthreads can only hide memory latency, not provide extra compute.
+
+The results in Figure~\ref{fig:table} show that my schedule for CPU's and a GPU is slightly faster than all of the autoschedulers, which
+improves on my initial goal of equaling the autoschedulers' performance.
+%
+In general, it was difficult to interpret the schedules chosen by the autoschedulers in order to contrast the differences in scheduling,
+from either the generated schedule or emitted for-loop structure.
+%
+At a high level, the autoschedulers attempted more exotic methods of inlining and computing functions at other functions.
+%
+In the end, these were slightly slower than a somewhat more straightforward schedule that computed many functions at the root.
+
+\begin{figure*}
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{cpu_speedup}
+        \caption{Speedup of pipeline with more CPU cores}
+        \label{fig:speedup}
+    \end{subfigure}
+    \begin{subfigure}{0.5\textwidth}
+        \centering
+        \begin{tabular}{|c|c|c|}
+            \hline
+            Scheduler & CPU Time (s) & GPU Time (s) \\ 
+            \hline
+            Rohan & 0.12 & 0.019 \\
+            \hline
+            Mullapudi2016 & 0.15 & X \\
+            \hline
+            Adams2019 & 0.23 & X \\
+            \hline
+            Li2018 & 0.14 & 0.021 \\
+            \hline
+        \end{tabular}
+        \caption{Performance of each scheduler on CPUs (my MacBook) and a GPU (Sapling) in seconds. 'X' indicates the scheduler did not support the corresponding target.}
+        \label{fig:table}
+    \end{subfigure}
+    \caption{Overall performance results.}
+    \label{fig:results}
+\end{figure*}
 
 \bibliography{biblio.bib}
 
